@@ -158,6 +158,20 @@ This runs the Lambda handler locally using `local.js`, which:
 
 To perform a real sync, set `DRY_RUN=false` in your `.env` file or modify `local.js`.
 
+### 4) Run tests
+
+```bash
+npm test
+```
+
+Or run in watch mode for development:
+
+```bash
+npm run test:watch
+```
+
+Tests cover utility functions, WordPress block generators, and cache validation logic.
+
 ### Overriding parameters
 
 Edit `local.js` to customize the test event:
