@@ -628,8 +628,41 @@ async function syncOnce({
     };
 }
 
+// ---------- exported for testing ----------
+module.exports = {
+    // utilities
+    env,
+    parseBool,
+    pickOrder,
+    stripExt,
+    basicAuthHeader,
+    makeAnchorId,
+    // block generators
+    makeGalleryBlock,
+    makeHeadingBlock,
+    makeSpacerBlock,
+    makeTocBlock,
+    makeMasonryStyles,
+    makeSectionContent,
+    makePageContent,
+    // cache
+    loadCache,
+    saveCache,
+    isCacheValid,
+    // image processing
+    resizeImageIfNeeded,
+    // core
+    createDrive,
+    createWp,
+    listSubFolders,
+    listImagesInFolder,
+    downloadDriveFile,
+    syncOnce,
+    // Lambda handler (added below)
+};
+
 // ---------- Lambda handler ----------
-exports.handler = async (event) => {
+module.exports.handler = async (event) => {
     try {
         const qs = event.queryStringParameters || {};
         const isJson = event.headers && /json/i.test(event.headers['content-type'] || '');
