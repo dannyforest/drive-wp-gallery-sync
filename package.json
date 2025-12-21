@@ -1,0 +1,16 @@
+{
+    "name": "drive-wp-gallery-sync",
+    "version": "1.0.0",
+    "private": true,
+    "description": "On-demand Google Drive -> WordPress Gutenberg gallery sync (Lambda, filename dedupe).",
+    "main": "index.js",
+    "type": "commonjs",
+    "license": "MIT",
+    "dependencies": {
+        "axios": "^1.7.7",
+        "dotenv": "^17.2.3",
+        "form-data": "^4.0.0",
+        "googleapis": "^140.0.0",
+        "sharp": "^0.34.5"
+    }
+}
