@@ -11,6 +11,7 @@ const {
     makeSpacerBlock,
     makeTocBlock,
     makeMasonryStyles,
+    makeSectionContent,
     isCacheValid,
 } = require('./index');
 
@@ -219,6 +220,12 @@ describe('makeGalleryBlock', () => {
         expect(block).toContain('masonry-gallery');
     });
 
+    it('uses default lightbox group for continuous navigation', () => {
+        const attachments = [{ id: 1, url: 'http://example.com/img1.jpg', alt: '' }];
+        const block = makeGalleryBlock(attachments);
+        expect(block).toContain('"group":"gallery-lightbox"');
+    });
+
     it('uses custom group ID', () => {
         const attachments = [{ id: 1, url: 'http://example.com/img1.jpg', alt: '' }];
         const block = makeGalleryBlock(attachments, 'custom-group');
@@ -247,6 +254,44 @@ describe('makeTocBlock', () => {
         expect(block).toContain('value="#section-two"');
         expect(block).toContain('>Section One</option>');
         expect(block).toContain('>Section Two</option>');
+    });
+});
+
+// ---------- makeSectionContent ----------
+describe('makeSectionContent', () => {
+    it('creates sections with headings and galleries', () => {
+        const sections = [
+            { name: 'Section A', attachments: [{ id: 1, url: 'http://example.com/a.jpg', alt: 'A' }] },
+            { name: 'Section B', attachments: [{ id: 2, url: 'http://example.com/b.jpg', alt: 'B' }] },
+        ];
+        const content = makeSectionContent(sections);
+
+        // Check both sections are present with headings
+        expect(content).toContain('Section A');
+        expect(content).toContain('Section B');
+        expect(content).toContain('"id":1');
+        expect(content).toContain('"id":2');
+    });
+
+    it('uses same lightbox group for all galleries to enable continuous navigation', () => {
+        const sections = [
+            { name: 'First', attachments: [{ id: 1, url: 'http://example.com/1.jpg', alt: '1' }] },
+            { name: 'Second', attachments: [{ id: 2, url: 'http://example.com/2.jpg', alt: '2' }] },
+        ];
+        const content = makeSectionContent(sections);
+
+        // All galleries should use the same lightbox group
+        const matches = content.match(/"group":"gallery-lightbox"/g);
+        // Each section has 2 occurrences: one in wp:gallery and one in wp:image
+        expect(matches.length).toBe(4);
+    });
+
+    it('allows custom lightbox group', () => {
+        const sections = [
+            { name: 'Test', attachments: [{ id: 1, url: 'http://example.com/1.jpg', alt: '' }] },
+        ];
+        const content = makeSectionContent(sections, 'my-custom-group');
+        expect(content).toContain('"group":"my-custom-group"');
     });
 });
 

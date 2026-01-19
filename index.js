@@ -95,9 +95,10 @@ function makeMasonryStyles() {
 <!-- /wp:html -->`;
 }
 
-function makeGalleryBlock(attachments, groupId = 'all-photos') {
+function makeGalleryBlock(attachments, groupId = 'gallery-lightbox') {
     // attachments = [{ id, url, alt }, ...]
     // Use WordPress blocks for lightbox, but add masonry-gallery class for CSS styling
+    // IMPORTANT: groupId must be consistent across all galleries for continuous lightbox navigation
     const imageBlocks = attachments.map(({ id, url, alt }) =>
         `<!-- wp:image {"id":${id},"sizeSlug":"large","linkDestination":"media","lightbox":{"enabled":true,"group":"${groupId}"}} -->\n<figure class="wp-block-image size-large"><a href="${url}"><img src="${url}" alt="${alt || ''}" class="wp-image-${id}"/></a></figure>\n<!-- /wp:image -->`
     ).join('\n');
@@ -142,13 +143,14 @@ ${options}
     return `<!-- wp:html -->\n${dropdownHtml}\n<!-- /wp:html -->`;
 }
 
-function makeSectionContent(sections) {
+function makeSectionContent(sections, lightboxGroup = 'gallery-lightbox') {
     // sections = [{ name, attachments: [{ id, url, alt }, ...] }, ...]
+    // Use the same lightboxGroup for all galleries so lightbox continues across sections
     const spacer = makeSpacerBlock(30);
     return sections.map(({ name, attachments }) => {
         const anchor = makeAnchorId(name);
         const heading = makeHeadingBlock(name, 2, anchor);
-        const gallery = makeGalleryBlock(attachments);
+        const gallery = makeGalleryBlock(attachments, lightboxGroup);
         return `${heading}\n\n${gallery}`;
     }).join(`\n\n${spacer}\n\n`);
 }
@@ -528,6 +530,9 @@ async function syncOnce({
     const toUpload = [];
     const reused = [];
     let totalUploaded = 0;
+    // Track which WP media IDs have been used in this sync to avoid duplicates across sections
+    // This prevents the same WP media being used for different Drive files with same filename
+    const usedMediaIds = new Set();
 
     for (const folder of subFolders) {
         console.log(`[sync] Processing folder: ${folder.name}`);
@@ -540,11 +545,12 @@ async function syncOnce({
             const filename = f.name || `${f.id}.jpg`;
             const alt = stripExt(filename);
 
-            // try to reuse existing
+            // try to reuse existing - but only if not already used by another section
             const existing = await wp.findMediaByFilename(filename);
-            if (existing) {
+            if (existing && !usedMediaIds.has(existing.id)) {
                 const url = existing.source_url || existing.media_details?.sizes?.large?.source_url || '';
                 attachments.push({ id: existing.id, url, alt });
+                usedMediaIds.add(existing.id);
                 reused.push({ folder: folder.name, filename });
                 continue;
             }
@@ -568,6 +574,7 @@ async function syncOnce({
             });
             const url = media.source_url || media.media_details?.sizes?.large?.source_url || '';
             attachments.push({ id: media.id, url, alt });
+            usedMediaIds.add(media.id);
             toUpload.push({ folder: folder.name, filename });
             totalUploaded++;
         }
