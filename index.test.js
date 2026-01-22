@@ -4,6 +4,7 @@ const {
     parseBool,
     pickOrder,
     stripExt,
+    makeUniqueFilename,
     basicAuthHeader,
     makeAnchorId,
     makeGalleryBlock,
@@ -12,6 +13,7 @@ const {
     makeTocBlock,
     makeMasonryStyles,
     makeSectionContent,
+    makePageContent,
     isCacheValid,
 } = require('./index');
 
@@ -295,6 +297,90 @@ describe('makeSectionContent', () => {
     });
 });
 
+// ---------- makePageContent ----------
+describe('makePageContent', () => {
+    it('creates page with sections, TOC, and styles when makeSections=true', () => {
+        const sections = [
+            { name: 'Section A', attachments: [{ id: 1, url: 'http://example.com/a.jpg', alt: 'A' }] },
+            { name: 'Section B', attachments: [{ id: 2, url: 'http://example.com/b.jpg', alt: 'B' }] },
+        ];
+        const content = makePageContent(sections, true);
+
+        // Should contain styles
+        expect(content).toContain('masonry-gallery');
+        expect(content).toContain('<style>');
+
+        // Should contain TOC
+        expect(content).toContain('toc-dropdown');
+        expect(content).toContain('<select');
+
+        // Should contain section headings
+        expect(content).toContain('Section A');
+        expect(content).toContain('Section B');
+
+        // Should contain galleries
+        expect(content).toContain('"id":1');
+        expect(content).toContain('"id":2');
+    });
+
+    it('creates single gallery without TOC when makeSections=false', () => {
+        const sections = [
+            { name: 'Section A', attachments: [{ id: 1, url: 'http://example.com/a.jpg', alt: 'A' }] },
+            { name: 'Section B', attachments: [{ id: 2, url: 'http://example.com/b.jpg', alt: 'B' }] },
+        ];
+        const content = makePageContent(sections, false);
+
+        // Should contain styles
+        expect(content).toContain('masonry-gallery');
+        expect(content).toContain('<style>');
+
+        // Should NOT contain TOC
+        expect(content).not.toContain('toc-dropdown');
+        expect(content).not.toContain('<select');
+
+        // Should NOT contain section headings
+        expect(content).not.toContain('wp:heading');
+        expect(content).not.toContain('Section A');
+        expect(content).not.toContain('Section B');
+
+        // Should contain single gallery with all images
+        expect(content).toContain('"id":1');
+        expect(content).toContain('"id":2');
+
+        // Should only have one gallery block (for continuous lightbox)
+        const galleryMatches = content.match(/wp:gallery/g);
+        expect(galleryMatches.length).toBe(2); // opening and closing
+    });
+});
+
+// ---------- makeUniqueFilename ----------
+describe('makeUniqueFilename', () => {
+    it('creates unique filename by prefixing with folder name', () => {
+        const result = makeUniqueFilename('Summer', 'photo.jpg');
+        expect(result).toBe('Summer-photo.jpg');
+    });
+
+    it('sanitizes folder name with special characters', () => {
+        const result = makeUniqueFilename('Summer 2024!', 'photo.jpg');
+        expect(result).toBe('Summer-2024-photo.jpg');
+    });
+
+    it('handles multiple consecutive special characters', () => {
+        const result = makeUniqueFilename('Summer   &&&   2024', 'photo.jpg');
+        expect(result).toBe('Summer-2024-photo.jpg');
+    });
+
+    it('removes leading and trailing dashes', () => {
+        const result = makeUniqueFilename('---Summer---', 'photo.jpg');
+        expect(result).toBe('Summer-photo.jpg');
+    });
+
+    it('handles folder names with accents and unicode', () => {
+        const result = makeUniqueFilename('Été 2024', 'photo.jpg');
+        expect(result).toBe('t-2024-photo.jpg');
+    });
+});
+
 // ---------- makeMasonryStyles ----------
 describe('makeMasonryStyles', () => {
     it('creates CSS style block', () => {
@@ -302,7 +388,7 @@ describe('makeMasonryStyles', () => {
         expect(styles).toContain('wp:html');
         expect(styles).toContain('<style>');
         expect(styles).toContain('.masonry-gallery');
-        expect(styles).toContain('column-count');
+        expect(styles).toContain('flex-wrap');
         expect(styles).toContain('@media');
     });
 });

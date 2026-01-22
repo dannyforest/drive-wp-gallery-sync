@@ -62,34 +62,42 @@ function pickOrder(order) {
 }
 
 function makeMasonryStyles() {
-    // CSS for masonry layout using CSS columns - included once at the top of page
+    // CSS for flexbox grid layout - fixed height rows, centered crop
     return `<!-- wp:html -->
 <style>
 .masonry-gallery.wp-block-gallery {
-    display: block !important;
-    column-count: 3;
-    column-gap: 10px;
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 10px;
 }
 .masonry-gallery.wp-block-gallery .wp-block-image {
-    break-inside: avoid;
-    margin-bottom: 10px !important;
-    width: 100% !important;
+    flex: 0 0 calc(33.333% - 7px);
+    height: 300px;
+    margin: 0 !important;
+    overflow: hidden;
 }
 .masonry-gallery.wp-block-gallery .wp-block-image img {
     width: 100%;
-    height: auto !important;
-    object-fit: contain;
+    height: 100% !important;
+    object-fit: cover;
+    object-position: center center;
     border-radius: 4px;
 }
 .masonry-gallery.wp-block-gallery .wp-block-image figure {
     margin: 0;
-    height: auto !important;
+    height: 100% !important;
 }
 @media (max-width: 900px) {
-    .masonry-gallery.wp-block-gallery { column-count: 2; }
+    .masonry-gallery.wp-block-gallery .wp-block-image {
+        flex: 0 0 calc(50% - 5px);
+        height: 250px;
+    }
 }
 @media (max-width: 500px) {
-    .masonry-gallery.wp-block-gallery { column-count: 1; }
+    .masonry-gallery.wp-block-gallery .wp-block-image {
+        flex: 0 0 100%;
+        height: 300px;
+    }
 }
 </style>
 <!-- /wp:html -->`;
@@ -155,8 +163,18 @@ function makeSectionContent(sections, lightboxGroup = 'gallery-lightbox') {
     }).join(`\n\n${spacer}\n\n`);
 }
 
-function makePageContent(sections) {
+function makePageContent(sections, makeSections = true) {
     const styles = makeMasonryStyles();
+
+    if (!makeSections) {
+        // Single gallery mode: combine all attachments from all sections into one gallery
+        // Flexbox flows horizontally (left-to-right), so folders stay grouped naturally
+        const allAttachments = sections.flatMap(s => s.attachments);
+        const gallery = makeGalleryBlock(allAttachments, 'gallery-lightbox');
+        return `${styles}\n\n${gallery}`;
+    }
+
+    // Multi-section mode: create TOC and separate galleries per section
     const toc = makeTocBlock(sections);
     const spacerAfterToc = makeSpacerBlock(50);
     const sectionContent = makeSectionContent(sections);
@@ -169,6 +187,13 @@ function basicAuthHeader(user, pass) {
 
 function stripExt(name) {
     return name.replace(/\.[^.]+$/, '');
+}
+
+function makeUniqueFilename(folderName, filename) {
+    // Create a unique filename by prefixing with folder name
+    // e.g., "Summer/photo.jpg" -> "Summer-photo.jpg"
+    const sanitizedFolder = folderName.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    return `${sanitizedFolder}-${filename}`;
 }
 
 // ---------- Google Drive ----------
@@ -322,15 +347,6 @@ function createWp(baseUrl, username, appPassword, { refreshCache = false } = {})
                             url: src
                         };
                     }
-                    // Also index by title
-                    const titleRendered = (it.title && it.title.rendered) ? it.title.rendered : '';
-                    const titleText = titleRendered.replace(/<[^>]*>/g, '').trim().toLowerCase();
-                    if (titleText && !mediaCache[titleText]) {
-                        mediaCache[titleText] = {
-                            id: it.id,
-                            url: src
-                        };
-                    }
                 }
 
                 totalFetched += items.length;
@@ -360,15 +376,11 @@ function createWp(baseUrl, username, appPassword, { refreshCache = false } = {})
     function findMediaInCache(filename) {
         if (!mediaCache) return null;
         const nameLc = filename.toLowerCase();
-        const nameNoExtLc = stripExt(filename).toLowerCase();
 
-        // Check by filename
+        // Only check by exact filename match to avoid cross-folder collisions
+        // when using unique filenames with folder prefixes
         if (mediaCache[nameLc]) {
             return { id: mediaCache[nameLc].id, source_url: mediaCache[nameLc].url };
-        }
-        // Check by title (without extension)
-        if (mediaCache[nameNoExtLc]) {
-            return { id: mediaCache[nameNoExtLc].id, source_url: mediaCache[nameNoExtLc].url };
         }
         return null;
     }
@@ -376,14 +388,11 @@ function createWp(baseUrl, username, appPassword, { refreshCache = false } = {})
     function addToCache(filename, id, url) {
         if (!mediaCache) mediaCache = {};
         const nameLc = filename.toLowerCase();
-        const nameNoExtLc = stripExt(filename).toLowerCase();
         mediaCache[nameLc] = { id, url };
-        mediaCache[nameNoExtLc] = { id, url };
 
         // Update disk cache
         const diskCache = loadCache() || { wpBaseUrl: baseUrl, lastUpdated: Date.now(), media: {} };
         diskCache.media[nameLc] = { id, url };
-        diskCache.media[nameNoExtLc] = { id, url };
         diskCache.lastUpdated = Date.now();
         saveCache(diskCache);
     }
@@ -394,11 +403,13 @@ function createWp(baseUrl, username, appPassword, { refreshCache = false } = {})
         if (cached) return cached;
 
         // Fall back to API search (in case cache is stale)
+        // Only match by exact filename to avoid cross-folder collisions
         const nameLc = filename.toLowerCase();
-        const nameNoExtLc = stripExt(filename).toLowerCase();
 
         let items = [];
         try {
+            // Search by filename without extension for better API results
+            const nameNoExtLc = stripExt(filename).toLowerCase();
             items = await client.get(`/wp/v2/media?per_page=100&search=${encodeURIComponent(nameNoExtLc)}`)
                 .then(r => r.data);
         } catch (err) {
@@ -408,17 +419,11 @@ function createWp(baseUrl, username, appPassword, { refreshCache = false } = {})
             items = [];
         }
 
+        // Only match by exact filename from URL
         for (const it of items) {
             const src = it.source_url || '';
             const base = basenameFromUrl(src).toLowerCase();
             if (base === nameLc) {
-                addToCache(filename, it.id, src);
-                return it;
-            }
-
-            const titleRendered = (it.title && it.title.rendered) ? it.title.rendered : '';
-            const titleText = titleRendered.replace(/<[^>]*>/g, '').trim().toLowerCase();
-            if (titleText === nameNoExtLc) {
                 addToCache(filename, it.id, src);
                 return it;
             }
@@ -507,6 +512,7 @@ async function syncOnce({
     refreshCache = false,
     maxSize = DEFAULT_MAX_IMAGE_SIZE,
     uploadLimit = 0,
+    makeSections = true,
     wpBaseUrl,
     wpUser,
     wpPass
@@ -545,8 +551,16 @@ async function syncOnce({
             const filename = f.name || `${f.id}.jpg`;
             const alt = stripExt(filename);
 
-            // try to reuse existing - but only if not already used by another section
-            const existing = await wp.findMediaByFilename(filename);
+            // Create unique filename by prefixing with folder name to handle duplicates across folders
+            const uniqueFilename = makeUniqueFilename(folder.name, filename);
+
+            // try to reuse existing - search by unique filename first, then by original filename
+            let existing = await wp.findMediaByFilename(uniqueFilename);
+            if (!existing) {
+                // Fallback to original filename for backwards compatibility
+                existing = await wp.findMediaByFilename(filename);
+            }
+
             if (existing && !usedMediaIds.has(existing.id)) {
                 const url = existing.source_url || existing.media_details?.sizes?.large?.source_url || '';
                 attachments.push({ id: existing.id, url, alt });
@@ -568,7 +582,8 @@ async function syncOnce({
 
             let buf = await downloadDriveFile(drive, f.id);
             buf = await resizeImageIfNeeded(buf, maxSize);
-            const media = await wp.uploadMedia(buf, filename, {
+            // Upload with unique filename to prevent conflicts
+            const media = await wp.uploadMedia(buf, uniqueFilename, {
                 caption: f.description || '',
                 alt
             });
@@ -590,8 +605,12 @@ async function syncOnce({
         const prevContent = (page.content && (page.content.raw || page.content.rendered)) || '';
         console.log(`[sync] Previous content length: ${prevContent.length}`);
 
-        const newPageContent = makePageContent(sections);
-        console.log(`[sync] Generated ${sections.length} sections with table of contents`);
+        const newPageContent = makePageContent(sections, makeSections);
+        if (makeSections) {
+            console.log(`[sync] Generated ${sections.length} sections with table of contents`);
+        } else {
+            console.log(`[sync] Generated single gallery with ${sections.reduce((sum, s) => sum + s.attachments.length, 0)} images`);
+        }
 
         let newContent;
         if (clearContent) {
@@ -642,6 +661,7 @@ module.exports = {
     parseBool,
     pickOrder,
     stripExt,
+    makeUniqueFilename,
     basicAuthHeader,
     makeAnchorId,
     // block generators
@@ -682,6 +702,7 @@ module.exports.handler = async (event) => {
         const dryRun = parseBool(qs.dryRun ?? body.dryRun ?? env('DRY_RUN'), false);
         const clearContent = parseBool(qs.clearContent ?? body.clearContent ?? env('CLEAR_CONTENT'), false);
         const refreshCache = parseBool(qs.refreshCache ?? body.refreshCache ?? env('REFRESH_CACHE'), false);
+        const makeSections = parseBool(qs.makeSections ?? body.makeSections ?? env('MAKE_SECTIONS'), true);
         const maxSize = parseInt(qs.maxSize || body.maxSize || env('MAX_SIZE') || DEFAULT_MAX_IMAGE_SIZE, 10);
         const uploadLimit = parseInt(qs.uploadLimit || body.uploadLimit || env('UPLOAD_LIMIT') || '0', 10);
 
@@ -696,6 +717,7 @@ module.exports.handler = async (event) => {
             dryRun,
             clearContent,
             refreshCache,
+            makeSections,
             maxSize,
             uploadLimit,
             wpBaseUrl,
