@@ -549,7 +549,7 @@ async function syncOnce({
 
         for (const f of files) {
             const filename = f.name || `${f.id}.jpg`;
-            const alt = stripExt(filename);
+            const alt = ''; // Empty alt text to prevent filename from showing in lightbox
 
             // Create unique filename by prefixing with folder name to handle duplicates across folders
             const uniqueFilename = makeUniqueFilename(folder.name, filename);
