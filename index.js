@@ -281,7 +281,9 @@ async function resizeImageIfNeeded(buf, maxSize) {
     if (width <= maxSize && height <= maxSize) return buf;
 
     // Resize so the largest dimension equals maxSize, maintaining aspect ratio
+    // Auto-rotate based on EXIF orientation before resizing to prevent rotation issues
     const resized = await image
+        .rotate() // Auto-rotate based on EXIF orientation data
         .resize({
             width: width > height ? maxSize : undefined,
             height: height >= width ? maxSize : undefined,
@@ -513,6 +515,8 @@ async function syncOnce({
     maxSize = DEFAULT_MAX_IMAGE_SIZE,
     uploadLimit = 0,
     makeSections = true,
+    usePhotosFromRoot = false,
+    forceReupload = false,
     wpBaseUrl,
     wpUser,
     wpPass
@@ -535,38 +539,44 @@ async function syncOnce({
     const sections = []; // { name, attachments: [{ id, url, alt }, ...] }
     const toUpload = [];
     const reused = [];
+    const skippedFiles = []; // Track files that failed to process
     let totalUploaded = 0;
     // Track which WP media IDs have been used in this sync to avoid duplicates across sections
     // This prevents the same WP media being used for different Drive files with same filename
     const usedMediaIds = new Set();
 
-    for (const folder of subFolders) {
-        console.log(`[sync] Processing folder: ${folder.name}`);
-        const files = await listImagesInFolder(drive, folder.id);
+    // Helper function to process images from a folder
+    async function processFolderImages(folderId, folderName) {
+        console.log(`[sync] Processing folder: ${folderName}`);
+        const files = await listImagesInFolder(drive, folderId);
         files.sort(pickOrder(order));
 
         const attachments = [];
+        const skipped = [];
 
         for (const f of files) {
             const filename = f.name || `${f.id}.jpg`;
             const alt = ''; // Empty alt text to prevent filename from showing in lightbox
 
             // Create unique filename by prefixing with folder name to handle duplicates across folders
-            const uniqueFilename = makeUniqueFilename(folder.name, filename);
+            const uniqueFilename = makeUniqueFilename(folderName, filename);
 
             // try to reuse existing - search by unique filename first, then by original filename
-            let existing = await wp.findMediaByFilename(uniqueFilename);
-            if (!existing) {
-                // Fallback to original filename for backwards compatibility
-                existing = await wp.findMediaByFilename(filename);
-            }
+            // Skip this check if forceReupload is enabled
+            if (!forceReupload) {
+                let existing = await wp.findMediaByFilename(uniqueFilename);
+                if (!existing) {
+                    // Fallback to original filename for backwards compatibility
+                    existing = await wp.findMediaByFilename(filename);
+                }
 
-            if (existing && !usedMediaIds.has(existing.id)) {
-                const url = existing.source_url || existing.media_details?.sizes?.large?.source_url || '';
-                attachments.push({ id: existing.id, url, alt });
-                usedMediaIds.add(existing.id);
-                reused.push({ folder: folder.name, filename });
-                continue;
+                if (existing && !usedMediaIds.has(existing.id)) {
+                    const url = existing.source_url || existing.media_details?.sizes?.large?.source_url || '';
+                    attachments.push({ id: existing.id, url, alt });
+                    usedMediaIds.add(existing.id);
+                    reused.push({ folder: folderName, filename });
+                    continue;
+                }
             }
 
             // Check upload limit (0 or -1 = no limit)
@@ -575,25 +585,48 @@ async function syncOnce({
             }
 
             if (dryRun) {
-                toUpload.push({ folder: folder.name, filename });
+                toUpload.push({ folder: folderName, filename });
                 totalUploaded++;
                 continue;
             }
 
-            let buf = await downloadDriveFile(drive, f.id);
-            buf = await resizeImageIfNeeded(buf, maxSize);
-            // Upload with unique filename to prevent conflicts
-            const media = await wp.uploadMedia(buf, uniqueFilename, {
-                caption: f.description || '',
-                alt
-            });
-            const url = media.source_url || media.media_details?.sizes?.large?.source_url || '';
-            attachments.push({ id: media.id, url, alt });
-            usedMediaIds.add(media.id);
-            toUpload.push({ folder: folder.name, filename });
-            totalUploaded++;
+            try {
+                let buf = await downloadDriveFile(drive, f.id);
+                buf = await resizeImageIfNeeded(buf, maxSize);
+                // Upload with unique filename to prevent conflicts
+                const media = await wp.uploadMedia(buf, uniqueFilename, {
+                    caption: f.description || '',
+                    alt
+                });
+                const url = media.source_url || media.media_details?.sizes?.large?.source_url || '';
+                attachments.push({ id: media.id, url, alt });
+                usedMediaIds.add(media.id);
+                toUpload.push({ folder: folderName, filename });
+                totalUploaded++;
+            } catch (err) {
+                // Skip images that fail to process (e.g., unsupported formats, corrupt files)
+                const errorMsg = err.message || String(err);
+                console.log(`[sync] Skipping "${filename}" in folder "${folderName}": ${errorMsg}`);
+                skipped.push({ folder: folderName, filename, error: errorMsg });
+            }
         }
 
+        return { attachments, skipped };
+    }
+
+    // Process root folder photos if enabled
+    if (usePhotosFromRoot) {
+        const { attachments: rootAttachments, skipped } = await processFolderImages(driveFolderId, 'Root');
+        skippedFiles.push(...skipped);
+        if (rootAttachments.length > 0) {
+            sections.push({ name: 'Root', attachments: rootAttachments });
+        }
+    }
+
+    // Process sub-folders
+    for (const folder of subFolders) {
+        const { attachments, skipped } = await processFolderImages(folder.id, folder.name);
+        skippedFiles.push(...skipped);
         if (attachments.length > 0) {
             sections.push({ name: folder.name, attachments });
         }
@@ -639,9 +672,15 @@ async function syncOnce({
 
     const totalImages = sections.reduce((sum, s) => sum + s.attachments.length, 0);
 
+    // Log summary of skipped files
+    if (skippedFiles.length > 0) {
+        console.log(`[sync] Skipped ${skippedFiles.length} file(s) due to processing errors`);
+    }
+
     return {
         uploadedCount: toUpload.length,
         reusedCount: reused.length,
+        skippedCount: skippedFiles.length,
         totalIdsInGallery: totalImages,
         sectionsCount: sections.length,
         sections: sections.map(s => ({ name: s.name, imageCount: s.attachments.length })),
@@ -649,7 +688,8 @@ async function syncOnce({
         updated: !dryRun,
         images: {
             toUpload,
-            reused
+            reused,
+            skipped: skippedFiles
         }
     };
 }
@@ -703,6 +743,8 @@ module.exports.handler = async (event) => {
         const clearContent = parseBool(qs.clearContent ?? body.clearContent ?? env('CLEAR_CONTENT'), false);
         const refreshCache = parseBool(qs.refreshCache ?? body.refreshCache ?? env('REFRESH_CACHE'), false);
         const makeSections = parseBool(qs.makeSections ?? body.makeSections ?? env('MAKE_SECTIONS'), true);
+        const usePhotosFromRoot = parseBool(qs.usePhotosFromRoot ?? body.usePhotosFromRoot ?? env('USE_PHOTOS_FROM_ROOT_FOLDER'), false);
+        const forceReupload = parseBool(qs.forceReupload ?? body.forceReupload ?? env('FORCE_REUPLOAD'), false);
         const maxSize = parseInt(qs.maxSize || body.maxSize || env('MAX_SIZE') || DEFAULT_MAX_IMAGE_SIZE, 10);
         const uploadLimit = parseInt(qs.uploadLimit || body.uploadLimit || env('UPLOAD_LIMIT') || '0', 10);
 
@@ -718,6 +760,8 @@ module.exports.handler = async (event) => {
             clearContent,
             refreshCache,
             makeSections,
+            usePhotosFromRoot,
+            forceReupload,
             maxSize,
             uploadLimit,
             wpBaseUrl,
