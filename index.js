@@ -270,15 +270,19 @@ async function downloadDriveFile(drive, fileId) {
 }
 
 async function resizeImageIfNeeded(buf, maxSize) {
-    if (!maxSize || maxSize <= 0) return buf;
-
     const image = sharp(buf);
     const metadata = await image.metadata();
     const { width, height } = metadata;
 
     if (!width || !height) return buf;
 
-    if (width <= maxSize && height <= maxSize) return buf;
+    // Always apply EXIF rotation to fix portrait orientation issues
+    // even if we're not resizing
+    if (!maxSize || maxSize <= 0 || (width <= maxSize && height <= maxSize)) {
+        // No resize needed, but still apply rotation
+        const rotated = await image.rotate().toBuffer();
+        return rotated;
+    }
 
     // Resize so the largest dimension equals maxSize, maintaining aspect ratio
     // Auto-rotate based on EXIF orientation before resizing to prevent rotation issues
