@@ -1,4 +1,14 @@
 // index.test.js
+// NOTE: This file is kept for backward compatibility.
+// All tests have been moved to modular test files in src/ directory:
+// - src/utils.test.js
+// - src/blocks.test.js
+// - src/cache.test.js
+// - src/drive.test.js
+// - src/image.test.js
+// - src/wordpress.test.js
+// - src/sync.test.js
+
 const {
     env,
     parseBool,
