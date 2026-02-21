@@ -11,22 +11,14 @@ const fs = require('fs');
 const DEFAULT_MAX_IMAGE_SIZE = 1024;
 const CACHE_FILE = '.wp-media-cache.json';
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
-const CONFIG_FILE = 'config.json';
 
 // ---------- config ----------
-function loadConfig() {
-    try {
-        if (fs.existsSync(CONFIG_FILE)) {
-            const data = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
-            return data;
-        }
-    } catch (err) {
-        console.log(`[config] Failed to load config: ${err.message}`);
-    }
-    return {};
+let CONFIG = {};
+try {
+    CONFIG = require('./config.js');
+} catch (err) {
+    console.log(`[config] Failed to load config.js: ${err.message}`);
 }
-
-const CONFIG = loadConfig();
 
 // ---------- cache ----------
 function loadCache() {
@@ -65,7 +57,7 @@ function env(name, fallback) {
         return envVal;
     }
     const configVal = CONFIG[name];
-    if (configVal !== undefined && configVal !== null && configVal !== '') {
+    if (configVal !== undefined && configVal !== null) {
         return configVal;
     }
     return fallback;
