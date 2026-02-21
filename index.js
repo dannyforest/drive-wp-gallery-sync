@@ -234,6 +234,12 @@ async function createDrive() {
     return google.drive({ version: 'v3', auth });
 }
 
+function makeGoogleDriveImageUrl(fileId) {
+    // Generate a direct Google Drive image URL
+    // This URL format works for publicly accessible files or files shared with the service account
+    return `https://drive.google.com/uc?export=view&id=${fileId}`;
+}
+
 async function listSubFolders(drive, folderId) {
     const folders = [];
     let pageToken = null;
@@ -542,6 +548,7 @@ async function syncOnce({
     makeSections = true,
     usePhotosFromRoot = false,
     forceReupload = false,
+    useGoogleDrivePhotos = false,
     wpBaseUrl,
     wpUser,
     wpPass
@@ -553,8 +560,14 @@ async function syncOnce({
     const drive = await createDrive();
     const wp = createWp(wpBaseUrl, wpUser, wpPass, { refreshCache });
 
-    // Load/refresh WordPress media cache
-    await wp.loadMediaCache();
+    // Log which mode we're using
+    if (useGoogleDrivePhotos) {
+        console.log(`[sync] Using Google Drive URLs directly (no WordPress upload)`);
+    } else {
+        console.log(`[sync] Uploading images to WordPress Media Library`);
+        // Load/refresh WordPress media cache only if we're uploading to WordPress
+        await wp.loadMediaCache();
+    }
 
     // 1) list sub-folders (sorted alphabetically)
     const subFolders = await listSubFolders(drive, driveFolderId);
@@ -583,6 +596,24 @@ async function syncOnce({
             const filename = f.name || `${f.id}.jpg`;
             const alt = ''; // Empty alt text to prevent filename from showing in lightbox
 
+            // If using Google Drive photos directly, skip upload and use Drive URL
+            if (useGoogleDrivePhotos) {
+                try {
+                    const url = makeGoogleDriveImageUrl(f.id);
+                    // Use Drive file ID as the attachment ID for gallery block
+                    // This ensures unique IDs even though we're not using WordPress media
+                    const id = f.id.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10); // Sanitize for use in HTML
+                    attachments.push({ id, url, alt });
+                    console.log(`[sync] Using Google Drive URL for "${filename}"`);
+                } catch (err) {
+                    const errorMsg = err.message || String(err);
+                    console.log(`[sync] Skipping "${filename}" in folder "${folderName}": ${errorMsg}`);
+                    skipped.push({ folder: folderName, filename, error: errorMsg });
+                }
+                continue;
+            }
+
+            // WordPress upload mode (original behavior)
             // Create unique filename by prefixing with folder name to handle duplicates across folders
             const uniqueFilename = makeUniqueFilename(folderName, filename);
 
@@ -746,6 +777,7 @@ module.exports = {
     // core
     createDrive,
     createWp,
+    makeGoogleDriveImageUrl,
     listSubFolders,
     listImagesInFolder,
     downloadDriveFile,
@@ -770,6 +802,7 @@ module.exports.handler = async (event) => {
         const makeSections = parseBool(qs.makeSections ?? body.makeSections ?? env('MAKE_SECTIONS'), true);
         const usePhotosFromRoot = parseBool(qs.usePhotosFromRoot ?? body.usePhotosFromRoot ?? env('USE_PHOTOS_FROM_ROOT_FOLDER'), false);
         const forceReupload = parseBool(qs.forceReupload ?? body.forceReupload ?? env('FORCE_REUPLOAD'), false);
+        const useGoogleDrivePhotos = parseBool(qs.useGoogleDrivePhotos ?? body.useGoogleDrivePhotos ?? env('USE_GOOGLE_DRIVE_PHOTOS_FOR_GALLERY'), false);
         const maxSize = parseInt(qs.maxSize || body.maxSize || env('MAX_SIZE') || DEFAULT_MAX_IMAGE_SIZE, 10);
         const uploadLimit = parseInt(qs.uploadLimit || body.uploadLimit || env('UPLOAD_LIMIT') || '0', 10);
 
@@ -787,6 +820,7 @@ module.exports.handler = async (event) => {
             makeSections,
             usePhotosFromRoot,
             forceReupload,
+            useGoogleDrivePhotos,
             maxSize,
             uploadLimit,
             wpBaseUrl,

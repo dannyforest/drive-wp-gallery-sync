@@ -15,6 +15,7 @@ const {
     makeSectionContent,
     makePageContent,
     isCacheValid,
+    makeGoogleDriveImageUrl,
 } = require('./index');
 
 // ---------- env ----------
@@ -428,5 +429,20 @@ describe('isCacheValid', () => {
             lastUpdated: Date.now() - (1 * 60 * 60 * 1000), // 1 hour ago
         };
         expect(isCacheValid(cache, 'http://example.com')).toBe(true);
+    });
+});
+
+// ---------- makeGoogleDriveImageUrl ----------
+describe('makeGoogleDriveImageUrl', () => {
+    it('generates correct Google Drive image URL', () => {
+        const fileId = '1a2b3c4d5e6f7g8h9i0j';
+        const url = makeGoogleDriveImageUrl(fileId);
+        expect(url).toBe('https://drive.google.com/uc?export=view&id=1a2b3c4d5e6f7g8h9i0j');
+    });
+
+    it('handles file IDs with special characters', () => {
+        const fileId = 'abc-123_XYZ';
+        const url = makeGoogleDriveImageUrl(fileId);
+        expect(url).toBe('https://drive.google.com/uc?export=view&id=abc-123_XYZ');
     });
 });
