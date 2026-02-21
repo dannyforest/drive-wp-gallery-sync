@@ -11,6 +11,22 @@ const fs = require('fs');
 const DEFAULT_MAX_IMAGE_SIZE = 1024;
 const CACHE_FILE = '.wp-media-cache.json';
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+const CONFIG_FILE = 'config.json';
+
+// ---------- config ----------
+function loadConfig() {
+    try {
+        if (fs.existsSync(CONFIG_FILE)) {
+            const data = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+            return data;
+        }
+    } catch (err) {
+        console.log(`[config] Failed to load config: ${err.message}`);
+    }
+    return {};
+}
+
+const CONFIG = loadConfig();
 
 // ---------- cache ----------
 function loadCache() {
@@ -43,8 +59,16 @@ function isCacheValid(cache, wpBaseUrl) {
 
 // ---------- util ----------
 function env(name, fallback) {
-    const v = process.env[name];
-    return (v === undefined || v === null || v === '') ? fallback : v;
+    // Check process.env first, then CONFIG, then fallback
+    const envVal = process.env[name];
+    if (envVal !== undefined && envVal !== null && envVal !== '') {
+        return envVal;
+    }
+    const configVal = CONFIG[name];
+    if (configVal !== undefined && configVal !== null && configVal !== '') {
+        return configVal;
+    }
+    return fallback;
 }
 
 function parseBool(v, def = false) {
@@ -272,12 +296,17 @@ async function downloadDriveFile(drive, fileId) {
 async function resizeImageIfNeeded(buf, maxSize) {
     const image = sharp(buf);
     const metadata = await image.metadata();
-    const { width, height } = metadata;
+    let { width, height, orientation } = metadata;
 
     if (!width || !height) return buf;
 
+    // Adjust width/height for EXIF orientation (orientations 5-8 swap dimensions)
+    // See: https://github.com/lovell/sharp/issues/3124
+    if (orientation && orientation >= 5) {
+        [width, height] = [height, width];
+    }
+
     // Always apply EXIF rotation to fix portrait orientation issues
-    // even if we're not resizing
     if (!maxSize || maxSize <= 0 || (width <= maxSize && height <= maxSize)) {
         // No resize needed, but still apply rotation
         const rotated = await image.rotate().toBuffer();
