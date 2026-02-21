@@ -8,6 +8,7 @@
 // - src/image.test.js
 // - src/wordpress.test.js
 // - src/sync.test.js
+// - src/cleanup.test.js
 
 const {
     env,
@@ -26,6 +27,7 @@ const {
     makePageContent,
     isCacheValid,
     makeGoogleDriveImageUrl,
+    cleanupDuplicates,
 } = require('./index');
 
 // ---------- env ----------
@@ -454,5 +456,13 @@ describe('makeGoogleDriveImageUrl', () => {
         const fileId = 'abc-123_XYZ';
         const url = makeGoogleDriveImageUrl(fileId);
         expect(url).toBe('https://drive.google.com/uc?export=view&id=abc-123_XYZ');
+    });
+});
+
+// ---------- cleanupDuplicates ----------
+describe('cleanupDuplicates', () => {
+    it('is exported from index.js', () => {
+        expect(cleanupDuplicates).toBeDefined();
+        expect(typeof cleanupDuplicates).toBe('function');
     });
 });

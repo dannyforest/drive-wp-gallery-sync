@@ -221,7 +221,40 @@ function createWp(baseUrl, username, appPassword, { refreshCache = false } = {})
         }
     }
 
-    return { loadMediaCache, findMediaByFilename, uploadMedia, getPage, patchPageContent };
+    async function deleteMedia(mediaId, force = true) {
+        try {
+            const response = await client.delete(`/wp/v2/media/${mediaId}?force=${force}`).then(r => r.data);
+
+            // Remove from cache if deletion was successful
+            if (mediaCache) {
+                for (const [filename, data] of Object.entries(mediaCache)) {
+                    if (data.id === mediaId) {
+                        delete mediaCache[filename];
+
+                        // Update disk cache
+                        const diskCache = loadCache() || { wpBaseUrl: baseUrl, lastUpdated: Date.now(), media: {} };
+                        delete diskCache.media[filename];
+                        diskCache.lastUpdated = Date.now();
+                        saveCache(diskCache);
+                        break;
+                    }
+                }
+            }
+
+            return response;
+        } catch (err) {
+            if (err.response?.status === 401) {
+                throw new Error(`WordPress authentication failed (401) while deleting media. Check your WP_USERNAME and WP_APP_PASSWORD. The user may also lack permission to delete media.`);
+            }
+            throw err;
+        }
+    }
+
+    function getMediaCache() {
+        return mediaCache || {};
+    }
+
+    return { loadMediaCache, findMediaByFilename, uploadMedia, getPage, patchPageContent, deleteMedia, getMediaCache };
 }
 
 module.exports = {

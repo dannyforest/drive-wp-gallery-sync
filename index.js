@@ -10,6 +10,8 @@ const { createDrive, makeGoogleDriveImageUrl, listSubFolders, listImagesInFolder
 const { resizeImageIfNeeded, DEFAULT_MAX_IMAGE_SIZE } = require('./src/image');
 const { createWp } = require('./src/wordpress');
 const { syncOnce } = require('./src/sync');
+const { cleanupDuplicates } = require('./src/cleanup');
+const { CLEANUP_DUPLICATES } = require('./config');
 
 // ---------- exported for testing ----------
 module.exports = {
@@ -43,6 +45,7 @@ module.exports = {
     listImagesInFolder,
     downloadDriveFile,
     syncOnce,
+    cleanupDuplicates,
     // Lambda handler (added below)
 };
 
@@ -71,6 +74,27 @@ module.exports.handler = async (event) => {
         const wpUser = qs.wpUser || body.wpUser || env('WP_USERNAME');
         const wpPass = qs.wpPass || body.wpPass || env('WP_APP_PASSWORD');
 
+        // Check if cleanup mode is enabled
+        const cleanupMode = parseBool(
+            qs.cleanupDuplicates ?? body.cleanupDuplicates ?? env('CLEANUP_DUPLICATES') ?? CLEANUP_DUPLICATES,
+            false
+        );
+
+        let cleanupResult = null;
+        if (cleanupMode) {
+            // Run cleanup before sync
+            cleanupResult = await cleanupDuplicates({
+                wpBaseUrl,
+                wpUser,
+                wpPass,
+                wpPageId,
+                dryRun,
+                refreshCache,
+                forceReupload
+            });
+        }
+
+        // Continue with normal sync
         const result = await syncOnce({
             driveFolderId,
             wpPageId,
@@ -89,10 +113,16 @@ module.exports.handler = async (event) => {
             wpPass
         });
 
+        // Include cleanup result if it was run
+        const response = { ok: true, result };
+        if (cleanupResult) {
+            response.cleanup = cleanupResult;
+        }
+
         return {
             statusCode: 200,
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ ok: true, result })
+            body: JSON.stringify(response)
         };
     } catch (err) {
         console.error(err);

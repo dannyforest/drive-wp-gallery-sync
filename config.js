@@ -36,5 +36,11 @@ module.exports = {
 
   // Whether to force re-upload of images even if they already exist
   FORCE_REUPLOAD: true,
+
+  // Whether to run cleanup mode to delete duplicate media files
+  CLEANUP_DUPLICATES: false,
+
+  // Delay between deletions in milliseconds (to avoid overwhelming WordPress)
+  CLEANUP_DELAY_MS: 100,
 };
 
