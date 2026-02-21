@@ -12,7 +12,7 @@ module.exports = {
   USE_PHOTOS_FROM_ROOT_FOLDER: true,
 
   // Whether to use Google Drive photos for the gallery (instead of WordPress media)
-  USE_GOOGLE_DRIVE_PHOTOS_FOR_GALLERY: true,
+  USE_GOOGLE_DRIVE_PHOTOS_FOR_GALLERY: false,
 
   // Whether to clear existing page content before syncing
   CLEAR_CONTENT: true,
